@@ -1,17 +1,26 @@
 import React from 'react';
-import { useSession } from '../../auth/useSession';
-import { can } from '../../lib/permissions';
+import { useCapabilities } from '../../auth/useCapabilities'; 
 import { Lock } from 'lucide-react';
 
-export const RestrictedButton = ({ action, resourceId, children, fallback = null, className = "", ...props }) => {
-  const { session } = useSession();
+/**
+ * 🛡️ RestrictedButton
+ * UX Gating Component. 
+ * Hides/Disables buttons based on role.
+ */
+export const RestrictedButton = ({ 
+  action, 
+  children, 
+  fallback = null, 
+  className = "", 
+  disabled = false,
+  ...props 
+}) => {
+  const { can } = useCapabilities();
+  const allowed = can(action);
 
-  // 1. Check if user has the role-based permission
-  const hasPermission = can(session?.role, action);
-
-  if (!hasPermission) {
+  if (!allowed) {
     if (fallback) return fallback;
-    
+
     // Default fallback: A disabled, locked button (visible but unusable)
     return (
       <button disabled className={`opacity-50 cursor-not-allowed flex items-center gap-2 ${className}`} title="Access Denied">
@@ -21,9 +30,9 @@ export const RestrictedButton = ({ action, resourceId, children, fallback = null
     );
   }
 
-  // 2. Render the actual button
+  // Render the actual button
   return (
-    <button className={className} {...props}>
+    <button className={className} disabled={disabled} {...props}>
       {children}
     </button>
   );
