@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabase/client';
 import { useSession } from '../../auth/useSession';
-import { Shield, AlertTriangle, CheckCircle, Lock, Map as MapIcon, RefreshCw } from 'lucide-react';
+import { useCapabilities } from '../../auth/useCapabilities'; // Corrected Hook
+import { Shield, AlertTriangle, CheckCircle, Lock, Map as MapIcon, RefreshCw, MessageSquare } from 'lucide-react';
 import { RestrictedButton } from '../common/RestrictedButton';
 import { PERM_CAPABILITIES } from '../../lib/permissions.actions';
 
 export const MatchRoom = ({ matchId }) => {
   const { session } = useSession();
+  const { can } = useCapabilities();
   const [match, setMatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [disputeReason, setDisputeReason] = useState("");
@@ -24,7 +26,8 @@ export const MatchRoom = ({ matchId }) => {
         table: 'matches', 
         filter: `id=eq.${matchId}` 
       }, (payload) => {
-        // Optimistic UI update or full refetch? Full refetch is safer for relations.
+        // ⚡ SAFETY: Always refetch to get Team Names (Foreign Keys)
+        // Realtime payload only gives us raw IDs like 'team1_id', not 'team1: { name: ... }'
         fetchMatch(); 
       })
       .subscribe();
@@ -33,13 +36,13 @@ export const MatchRoom = ({ matchId }) => {
   }, [matchId]);
 
   const fetchMatch = async () => {
-    // JOIN Teams to get names
+    // 🛡️ JOIN Teams to get names
     const { data, error } = await supabase
       .from('matches')
       .select(`
         *,
-        team1:team1_id(name),
-        team2:team2_id(name)
+        team1:team1_id(name, logo_url),
+        team2:team2_id(name, logo_url)
       `)
       .eq('id', matchId)
       .single();
@@ -54,7 +57,7 @@ export const MatchRoom = ({ matchId }) => {
     // Call Secure RPC
     const { error } = await supabase.rpc('api_file_dispute', {
       p_match_id: matchId,
-      p_team_id: session.team_id, // Ensure this is populated in useSession
+      p_team_id: session.team_id, // Use explicit team_id from secure session
       p_reason: disputeReason
     });
 
@@ -62,6 +65,7 @@ export const MatchRoom = ({ matchId }) => {
       alert("Error filing dispute: " + error.message);
     } else {
       setIsDisputing(false);
+      setDisputeReason(""); // Clear input
       alert("Dispute filed. Admin notified.");
     }
   };
@@ -90,7 +94,7 @@ export const MatchRoom = ({ matchId }) => {
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 text-white animate-in slide-in-from-bottom-4">
       
       {/* LEFT: Team A */}
-      <TeamCard name={match.team1?.name || 'TBD'} isReady={false} />
+      <TeamCard team={match.team1} isReady={false} />
 
       {/* CENTER: The Action Board */}
       <div className="space-y-6">
@@ -174,16 +178,20 @@ export const MatchRoom = ({ matchId }) => {
       </div>
 
       {/* RIGHT: Team B */}
-      <TeamCard name={match.team2?.name || 'TBD'} isReady={false} align="right" />
+      <TeamCard team={match.team2} isReady={false} align="right" />
     </div>
   );
 };
 
 // Sub-component for Team Display
-const TeamCard = ({ name, isReady, align = "left" }) => (
+const TeamCard = ({ team, isReady, align = "left" }) => (
   <div className={`flex flex-col ${align === "right" ? "items-end text-right" : "items-start text-left"} p-6 bg-zinc-900/50 border border-white/5 rounded-lg h-full justify-center`}>
-    <Shield className={`w-12 h-12 mb-4 ${isReady ? 'text-green-500' : 'text-zinc-800'}`} />
-    <h3 className="text-3xl font-bold font-['Teko'] uppercase tracking-wide text-zinc-200">{name}</h3>
+    {team?.logo_url ? (
+      <img src={team.logo_url} alt={team.name} className="w-16 h-16 mb-4 object-contain" />
+    ) : (
+      <Shield className={`w-12 h-12 mb-4 ${isReady ? 'text-green-500' : 'text-zinc-800'}`} />
+    )}
+    <h3 className="text-3xl font-bold font-['Teko'] uppercase tracking-wide text-zinc-200">{team?.name || 'TBD'}</h3>
     <span className={`text-[10px] font-mono uppercase mt-2 px-2 py-1 rounded border ${isReady ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-zinc-800 border-zinc-700 text-zinc-600'}`}>
       {isReady ? 'READY FOR COMBAT' : 'AWAITING READY'}
     </span>
